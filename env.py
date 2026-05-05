@@ -18,6 +18,8 @@ DRONE_PARAMS = {
 }
 
 # Control bounds  [T,  tau_roll,  tau_pitch,  tau_yaw]
+# Tight torque bounds prevent CEM from sampling extreme inputs that flip the drone.
+# Attitude tracking relies on the Q matrix cost weights, not torque authority.
 U_MIN = np.array([0.0,  -0.5,  -0.5,  -0.2])
 U_MAX = np.array([2.0 * DRONE_PARAMS["mass"] * DRONE_PARAMS["g"],
                    0.5,   0.5,   0.2])
