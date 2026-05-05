@@ -35,8 +35,8 @@ Q_DEFAULT = np.diag([
 # Control: [T, tau_roll, tau_pitch, tau_yaw]
 R_DEFAULT = np.diag([
     0.01,   # total thrust  -- allow large thrust variance (needed for altitude recovery)
-    0.5,    # roll torque   -- penalise aggressive roll
-    0.5,    # pitch torque  -- penalise aggressive pitch
+    0.1,    # roll torque   -- moderate (altitude protection via Q_z=100)
+    0.1,    # pitch torque  -- moderate
     0.05,   # yaw torque    -- cheapest, penalise less
 ]).astype(np.float32)
 
@@ -105,6 +105,23 @@ def compute_cost_batch(X_seq: np.ndarray, U_seq: np.ndarray,
         accel_mag = np.sqrt((accel ** 2).sum(axis=2))    # (K, N-1)
         accel_violation = np.maximum(0.0, accel_mag - max_accel)  # (K, N-1)
         total += 1000.0 * (accel_violation ** 2).sum(axis=1)     # (K,)
+
+    # -- Altitude floor penalty (ALWAYS active) --------------------------------
+    # Prevents the cascading failure: tilt → lift loss → crash.
+    # Any predicted z below 0.3m gets a massive penalty.
+    z_vals = X_seq[:, :, 2]                               # (K, N)
+    z_violation = np.maximum(0.0, 0.3 - z_vals)           # (K, N)
+    total += 5000.0 * (z_violation ** 2).sum(axis=1)      # (K,)
+
+    # -- Excessive tilt penalty (ALWAYS active) --------------------------------
+    # Tilt > ~25 deg causes significant lift loss (cos(25°) = 0.91).
+    # Penalise phi/theta beyond 0.4 rad (23 deg) to keep vertical thrust.
+    TILT_LIMIT = 0.4   # radians (~23 degrees)
+    phi   = X_seq[:, :, 6]                                # (K, N)
+    theta = X_seq[:, :, 7]                                # (K, N)
+    phi_violation   = np.maximum(0.0, np.abs(phi) - TILT_LIMIT)    # (K, N)
+    theta_violation = np.maximum(0.0, np.abs(theta) - TILT_LIMIT)  # (K, N)
+    total += 2000.0 * (phi_violation ** 2 + theta_violation ** 2).sum(axis=1)
 
     return total
 
