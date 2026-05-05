@@ -22,7 +22,7 @@ import time
 import numpy as np
 
 from logger import TrajectoryLogger
-from env import DroneEnvironment, DRONE_PARAMS
+from env import DroneEnvironment, DRONE_PARAMS, U_MIN, U_MAX
 from nominal import f_nominal
 from model import ResidualModel, Normalizer, load_model, save_model
 from LBMPC import LBMPC
@@ -424,6 +424,18 @@ def main(args):
             t_solve = time.time()
             u = mpc.solve(x, x_ref_window)
             dt_solve = time.time() - t_solve
+
+            # ── Altitude PD controller (ALWAYS active) ────────────────────
+            # The classical MPC uses an independent altitude PD:
+            #   T_d = (m*g) + Kp*(z_ref - z) + Kd*(0 - vz)
+            # The CEM handles lateral control [tau_r, tau_p, tau_y] while
+            # thrust is set by this PD loop. This prevents the cascading
+            # failure where CEM sacrifices altitude for XY tracking.
+            z_ref  = x_ref_window[0, 2] if len(x_ref_window) > 0 else 1.0
+            z_err  = z_ref - x[2]
+            vz     = x[5]
+            T_pd   = (params["mass"] * params["g"]) + 10.0 * z_err + 5.0 * (-vz)
+            u[0]   = np.clip(T_pd, U_MIN[0], U_MAX[0])
 
             # Step simulation
             x_next = env.step(u)
